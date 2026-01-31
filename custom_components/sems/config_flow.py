@@ -8,11 +8,21 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.const import CONF_PASSWORD, CONF_SCAN_INTERVAL, CONF_USERNAME
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import selector
 
-from .const import CONF_POWERSTATION_ID, DEFAULT_SCAN_INTERVAL, DOMAIN
+from .const import (
+    API_SERVERS,
+    CONF_API_SERVER,
+    CONF_POWERSTATION_ID,
+    DEFAULT_API_SERVER,
+    DEFAULT_SCAN_INTERVAL,
+    DOMAIN,
+    MAX_SCAN_INTERVAL,
+    MIN_SCAN_INTERVAL,
+)
 from .sems_api import SemsApi
 
 _LOGGER = logging.getLogger(__name__)
@@ -22,7 +32,15 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
         vol.Required(CONF_USERNAME): str,
         vol.Required(CONF_PASSWORD): str,
         vol.Optional(CONF_POWERSTATION_ID): str,
-        vol.Optional(CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL): int,
+        vol.Optional(CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL): vol.All(
+            vol.Coerce(int), vol.Range(min=MIN_SCAN_INTERVAL, max=MAX_SCAN_INTERVAL)
+        ),
+        vol.Optional(CONF_API_SERVER, default=DEFAULT_API_SERVER): selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=[{"value": k, "label": v} for k, v in API_SERVERS.items()],
+                mode=selector.SelectSelectorMode.DROPDOWN,
+            )
+        ),
     }
 )
 
@@ -90,6 +108,49 @@ class ConfigFlow(config_entries.ConfigFlow, domain="sems_enhanced"):
 
         return self.async_show_form(
             step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
+        )
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry):
+        """Get the options flow for this handler."""
+        return SemsOptionsFlow()
+
+
+class SemsOptionsFlow(config_entries.OptionsFlow):
+    """Handle options flow for SEMS."""
+
+    async def async_step_init(self, user_input: dict[str, Any] | None = None):
+        """Manage the options."""
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        # Get current values from config entry
+        current_scan = self.config_entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
+        current_server = self.config_entry.data.get(CONF_API_SERVER, DEFAULT_API_SERVER)
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        CONF_SCAN_INTERVAL,
+                        default=self.config_entry.options.get(CONF_SCAN_INTERVAL, current_scan),
+                    ): vol.All(
+                        vol.Coerce(int),
+                        vol.Range(min=MIN_SCAN_INTERVAL, max=MAX_SCAN_INTERVAL),
+                    ),
+                    vol.Optional(
+                        CONF_API_SERVER,
+                        default=self.config_entry.options.get(CONF_API_SERVER, current_server),
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[{"value": k, "label": v} for k, v in API_SERVERS.items()],
+                            mode=selector.SelectSelectorMode.DROPDOWN,
+                        )
+                    ),
+                }
+            ),
         )
 
 

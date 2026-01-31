@@ -8,7 +8,8 @@
           "username": "Username",
           "password": "Password",
           "powerstation_id": "Power Station ID (optional)",
-          "scan_interval": "Update interval (seconds)"
+          "scan_interval": "Update interval (seconds, 30-300)",
+          "api_server": "API Server"
         }
       }
     },
@@ -19,6 +20,18 @@
     },
     "abort": {
       "already_configured": "This power station is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "SEMS Options",
+        "description": "Configure integration settings",
+        "data": {
+          "scan_interval": "Update interval (seconds, 30-300)",
+          "api_server": "API Server"
+        }
+      }
     }
   }
 }
