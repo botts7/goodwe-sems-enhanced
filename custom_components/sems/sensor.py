@@ -88,10 +88,13 @@ async def async_setup_entry(
             entities.append(SemsDCStringSensor(coordinator, sn, i, "voltage", device_info))
             entities.append(SemsDCStringSensor(coordinator, sn, i, "current", device_info))
 
-        # Battery sensors (if available)
-        entities.append(SemsBatterySOCSensor(coordinator, sn, device_info))
-        entities.append(SemsBatteryVoltageSensor(coordinator, sn, device_info))
-        entities.append(SemsBatteryCurrentSensor(coordinator, sn, device_info))
+        # Battery sensors (only if battery is present)
+        # Check for real battery voltage - if None/0, no battery connected
+        has_battery = inverter_data.get("vbattery1") not in (None, 0, "", "0")
+        if has_battery:
+            entities.append(SemsBatterySOCSensor(coordinator, sn, device_info))
+            entities.append(SemsBatteryVoltageSensor(coordinator, sn, device_info))
+            entities.append(SemsBatteryCurrentSensor(coordinator, sn, device_info))
 
         # Diagnostic sensor to see all data keys
         entities.append(SemsDiagnosticSensor(coordinator, sn))
@@ -108,11 +111,14 @@ async def async_setup_entry(
         entities.append(SemsPowerflowSensor(coordinator, "pv", "Solar Production", plant_device))
         entities.append(SemsPowerflowSensor(coordinator, "load", "House Load", plant_device))
         entities.append(SemsPowerflowSensor(coordinator, "grid", "Grid Power", plant_device))
-        entities.append(SemsPowerflowSensor(coordinator, "bettery", "Battery Power", plant_device))
-        entities.append(SemsPowerflowSOCSensor(coordinator, plant_device))
         entities.append(SemsPowerflowStatusSensor(coordinator, "grid", "Grid Status", plant_device))
         entities.append(SemsPowerflowStatusSensor(coordinator, "pv", "Solar Status", plant_device))
-        entities.append(SemsPowerflowStatusSensor(coordinator, "bettery", "Battery Status", plant_device))
+
+        # Battery powerflow sensors (only if battery exists in powerflow)
+        if powerflow.get("hasBattery") or powerflow.get("bettery"):
+            entities.append(SemsPowerflowSensor(coordinator, "bettery", "Battery Power", plant_device))
+            entities.append(SemsPowerflowSOCSensor(coordinator, plant_device))
+            entities.append(SemsPowerflowStatusSensor(coordinator, "bettery", "Battery Status", plant_device))
 
     # KPI sensors
     if "kpi" in data.get("homeKit", {}):
