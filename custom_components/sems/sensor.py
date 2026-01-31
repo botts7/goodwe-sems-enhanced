@@ -627,18 +627,19 @@ class SemsDiagnosticSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self):
-        """Return count of data keys."""
+        """Return count of unique data keys."""
         data = self.coordinator.data.get(self._sn, {})
-        return len(data.keys())
+        # Count only original keys (exclude lowercase duplicates)
+        unique_keys = [k for k in data.keys() if k == k.lower() or k.lower() not in data]
+        return len(unique_keys)
 
     @property
     def extra_state_attributes(self):
-        """Return all data keys and sample values."""
+        """Return all data keys and sample values (excluding lowercase duplicates)."""
         data = self.coordinator.data.get(self._sn, {})
-        attrs = {"all_keys": list(data.keys())}
-        # Add first 20 key-value pairs
-        for i, (k, v) in enumerate(data.items()):
-            if i >= 20:
-                break
-            attrs[k] = str(v)[:50]  # Truncate long values
+        # Filter out lowercase duplicates - keep original case keys only
+        unique_items = {k: v for k, v in data.items() if k == k.lower() or k.lower() not in data}
+        attrs = {"all_keys": list(unique_items.keys())}
+        for k, v in unique_items.items():
+            attrs[k] = str(v)[:50]
         return attrs
