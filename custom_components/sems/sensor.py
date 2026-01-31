@@ -142,6 +142,19 @@ async def async_setup_entry(
     # Warning sensor
     entities.append(SemsWarningSensor(coordinator))
 
+    # Weather sensors (if available)
+    if "weather" in data.get("homeKit", {}):
+        weather = data["homeKit"]["weather"]
+        weather_device = DeviceInfo(
+            identifiers={(DOMAIN, "weather")},
+            name="Solar Site Weather",
+            manufacturer="GoodWe",
+            model="Weather Station",
+        )
+        entities.append(SemsWeatherSensor(coordinator, "temp", "Temperature", weather_device))
+        entities.append(SemsWeatherSensor(coordinator, "humidity", "Humidity", weather_device))
+        entities.append(SemsWeatherSensor(coordinator, "weather_type", "Conditions", weather_device))
+
     async_add_entities(entities)
 
 
@@ -617,6 +630,65 @@ class SemsWarningSensor(CoordinatorEntity, SensorEntity):
                     "message": warning
                 })
         return {"warnings": details} if details else {}
+
+
+class SemsWeatherSensor(CoordinatorEntity, SensorEntity):
+    """Sensor for weather data at the solar site."""
+
+    def __init__(self, coordinator, key, name, device_info):
+        """Initialize the sensor."""
+        super().__init__(coordinator)
+        self._key = key
+        self._attr_unique_id = f"weather_{key}"
+        self._attr_name = name
+        self._attr_device_info = device_info
+
+        # Set appropriate device class and unit based on key
+        if key == "temp":
+            self._attr_device_class = SensorDeviceClass.TEMPERATURE
+            self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+            self._attr_state_class = SensorStateClass.MEASUREMENT
+        elif key == "humidity":
+            self._attr_device_class = SensorDeviceClass.HUMIDITY
+            self._attr_native_unit_of_measurement = PERCENTAGE
+            self._attr_state_class = SensorStateClass.MEASUREMENT
+        else:
+            self._attr_icon = "mdi:weather-partly-cloudy"
+
+    @property
+    def native_value(self):
+        """Return the weather value."""
+        homekit = self.coordinator.data.get("homeKit", {})
+        weather = homekit.get("weather", {})
+
+        if self._key == "temp":
+            # Try different possible keys for temperature
+            temp = weather.get("temp", weather.get("temperature", weather.get("tmp")))
+            if temp is not None:
+                try:
+                    return float(str(temp).replace("°C", "").replace("℃", "").strip())
+                except (ValueError, TypeError):
+                    pass
+            return None
+        elif self._key == "humidity":
+            humidity = weather.get("humidity", weather.get("hum"))
+            if humidity is not None:
+                try:
+                    return float(str(humidity).replace("%", "").strip())
+                except (ValueError, TypeError):
+                    pass
+            return None
+        elif self._key == "weather_type":
+            return weather.get("weather_type", weather.get("condition", weather.get("weather")))
+
+        return weather.get(self._key)
+
+    @property
+    def extra_state_attributes(self):
+        """Return all weather data as attributes."""
+        homekit = self.coordinator.data.get("homeKit", {})
+        weather = homekit.get("weather", {})
+        return {k: v for k, v in weather.items() if v is not None}
 
 
 class SemsDiagnosticSensor(CoordinatorEntity, SensorEntity):
