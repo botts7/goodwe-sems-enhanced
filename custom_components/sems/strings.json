@@ -1,0 +1,24 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "GoodWe SEMS Login",
+        "description": "Enter your SEMS portal credentials",
+        "data": {
+          "username": "Username",
+          "password": "Password",
+          "powerstation_id": "Power Station ID (optional)",
+          "scan_interval": "Update interval (seconds)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to SEMS portal",
+      "invalid_auth": "Invalid username or password",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "This power station is already configured"
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "domain": "sems_enhanced",
+  "name": "GoodWe SEMS Enhanced",
+  "codeowners": ["@TimSoethout"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/TimSoethout/goodwe-sems-home-assistant",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/TimSoethout/goodwe-sems-home-assistant/issues",
+  "requirements": ["requests>=2.25.0"],
+  "version": "2.0.0"
+}
