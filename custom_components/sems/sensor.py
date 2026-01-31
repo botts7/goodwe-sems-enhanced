@@ -114,8 +114,14 @@ async def async_setup_entry(
         entities.append(SemsPowerflowStatusSensor(coordinator, "grid", "Grid Status", plant_device))
         entities.append(SemsPowerflowStatusSensor(coordinator, "pv", "Solar Status", plant_device))
 
-        # Battery powerflow sensors (only if battery exists in powerflow)
-        if powerflow.get("hasBattery") or powerflow.get("bettery"):
+        # Battery powerflow sensors (only if battery exists)
+        # Check if any inverter has a battery connected (vbattery1 > 0)
+        has_battery = any(
+            inv_data.get("vbattery1") not in (None, 0, 0.0, "", "0")
+            for sn, inv_data in data.items()
+            if sn != "homeKit"
+        )
+        if has_battery:
             entities.append(SemsPowerflowSensor(coordinator, "bettery", "Battery Power", plant_device))
             entities.append(SemsPowerflowSOCSensor(coordinator, plant_device))
             entities.append(SemsPowerflowStatusSensor(coordinator, "bettery", "Battery Status", plant_device))
