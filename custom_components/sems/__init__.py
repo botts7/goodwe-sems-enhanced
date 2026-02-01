@@ -14,6 +14,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
+    CONF_MIDNIGHT_SKIP,
     CONF_NIGHT_INTERVAL,
     CONF_NIGHT_MODE,
     CONF_SCAN_INTERVAL,
@@ -21,6 +22,10 @@ from .const import (
     DEFAULT_NIGHT_INTERVAL,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    MIDNIGHT_SKIP_END_HOUR,
+    MIDNIGHT_SKIP_END_MINUTE,
+    MIDNIGHT_SKIP_START_HOUR,
+    MIDNIGHT_SKIP_START_MINUTE,
     PLATFORMS,
 )
 from .sems_api import SemsApi
@@ -92,6 +97,11 @@ class SemsDataUpdateCoordinator(DataUpdateCoordinator[SemsData]):
         self._is_night = False
         self._last_detailed_fetch: float = 0
 
+        # Midnight skip configuration (avoid phantom data around midnight)
+        self._midnight_skip_enabled = entry.data.get(CONF_MIDNIGHT_SKIP, True)
+        self._in_midnight_skip = False
+        self._cached_data: SemsData | None = None
+
         update_interval = timedelta(seconds=self._base_interval)
         super().__init__(
             hass,
@@ -134,12 +144,56 @@ class SemsDataUpdateCoordinator(DataUpdateCoordinator[SemsData]):
             _LOGGER.info("SEMS: Exiting night mode - resuming full data fetch")
             self._is_night = False
 
+    def _is_midnight_window(self) -> bool:
+        """Check if current time is in the midnight skip window (23:55-00:10).
+
+        SEMS API returns phantom/incorrect data around midnight, so we skip
+        fetching during this window and use cached data instead.
+        """
+        from datetime import datetime
+
+        now = datetime.now()
+        hour = now.hour
+        minute = now.minute
+
+        # Check if in window: 23:55-23:59 or 00:00-00:10
+        if hour == MIDNIGHT_SKIP_START_HOUR and minute >= MIDNIGHT_SKIP_START_MINUTE:
+            return True
+        if hour == MIDNIGHT_SKIP_END_HOUR and minute <= MIDNIGHT_SKIP_END_MINUTE:
+            return True
+        return False
+
+    def _update_midnight_skip_status(self, in_window: bool) -> None:
+        """Update midnight skip status and log transitions."""
+        if not self._midnight_skip_enabled:
+            return
+
+        if in_window and not self._in_midnight_skip:
+            _LOGGER.info(
+                "SEMS: Entering midnight skip window - using cached data to avoid phantom values"
+            )
+            self._in_midnight_skip = True
+        elif not in_window and self._in_midnight_skip:
+            _LOGGER.info("SEMS: Exiting midnight skip window - resuming API fetches")
+            self._in_midnight_skip = False
+
     async def _async_update_data(self) -> SemsData:
         """Fetch data from API endpoint.
 
         This is the place to pre-process the data to lookup tables
         so entities can quickly look up their data.
         """
+        # Check midnight skip window
+        if self._midnight_skip_enabled:
+            in_midnight_window = self._is_midnight_window()
+            self._update_midnight_skip_status(in_midnight_window)
+
+            if in_midnight_window and self._cached_data is not None:
+                _LOGGER.debug(
+                    "SEMS: Midnight skip active - returning cached data"
+                )
+                return self._cached_data
+
         # Note: asyncio.TimeoutError and aiohttp.ClientError are already
         # handled by the data update coordinator.
         # async with async_timeout.timeout(10):
@@ -269,6 +323,10 @@ class SemsDataUpdateCoordinator(DataUpdateCoordinator[SemsData]):
                 inverters=inverters_by_sn, homekit=homekit, currency=currency
             )
             _LOGGER.debug("Resulting data: %s", data)
+
+            # Cache data for midnight skip window
+            self._cached_data = data
+
             return data
 
 

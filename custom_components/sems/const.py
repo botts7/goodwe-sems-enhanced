@@ -11,9 +11,16 @@ PLATFORMS = ["sensor", "switch"]
 CONF_STATION_ID = "powerstation_id"
 CONF_NIGHT_MODE = "night_mode"
 CONF_NIGHT_INTERVAL = "night_interval"
+CONF_MIDNIGHT_SKIP = "midnight_skip"
 
 DEFAULT_SCAN_INTERVAL = 60  # timedelta(seconds=60)
 DEFAULT_NIGHT_INTERVAL = 300  # 5 minutes during night
+
+# Midnight skip window (23:55-00:10) - avoid phantom data around midnight
+MIDNIGHT_SKIP_START_HOUR = 23
+MIDNIGHT_SKIP_START_MINUTE = 55
+MIDNIGHT_SKIP_END_HOUR = 0
+MIDNIGHT_SKIP_END_MINUTE = 10
 
 # Validation of the user's configuration
 SEMS_CONFIG_SCHEMA = vol.Schema(
