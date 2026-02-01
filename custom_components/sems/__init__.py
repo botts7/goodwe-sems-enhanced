@@ -14,6 +14,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
+    CONF_ALWAYS_POLL_POWERFLOW,
     CONF_MIDNIGHT_SKIP,
     CONF_NIGHT_INTERVAL,
     CONF_NIGHT_MODE,
@@ -43,6 +44,9 @@ class SemsData:
     homekit: dict[str, Any] | None = None
     currency: str | None = None
     last_updated: float | None = None  # Unix timestamp of last successful fetch
+    warnings: list[dict[str, Any]] | None = None
+    weather: dict[str, Any] | None = None
+    energy_statistics: dict[str, Any] | None = None
 
 
 async def async_setup(hass: HomeAssistant, config: dict):
@@ -118,6 +122,16 @@ class SemsDataUpdateCoordinator(DataUpdateCoordinator[SemsData]):
         self._last_successful_fetch: float = 0
         self._was_stale = False
 
+        # Split polling - always poll powerflow at normal rate, full data less often
+        self._always_poll_powerflow = entry.data.get(CONF_ALWAYS_POLL_POWERFLOW, True)
+        self._last_full_fetch: float = 0
+
+        # Cached data for quick mode merging
+        self._cached_inverter_data: dict[str, dict[str, Any]] | None = None
+        self._cached_warnings: list[dict[str, Any]] | None = None
+        self._cached_weather: dict[str, Any] | None = None
+        self._cached_energy_stats: dict[str, Any] | None = None
+
         update_interval = timedelta(seconds=self._base_interval)
         super().__init__(
             hass,
@@ -152,13 +166,43 @@ class SemsDataUpdateCoordinator(DataUpdateCoordinator[SemsData]):
             return
 
         if is_night and not self._is_night:
-            _LOGGER.info(
-                "SEMS: Entering night mode - skipping detailed inverter data fetch"
-            )
+            if self._always_poll_powerflow:
+                _LOGGER.info(
+                    "SEMS: Entering night mode - powerflow at %ds, full fetch every %ds",
+                    self._base_interval,
+                    self._night_interval,
+                )
+            else:
+                _LOGGER.info(
+                    "SEMS: Entering night mode - skipping detailed inverter data fetch"
+                )
             self._is_night = True
         elif not is_night and self._is_night:
             _LOGGER.info("SEMS: Exiting night mode - resuming full data fetch")
             self._is_night = False
+
+    def _should_do_full_fetch(self) -> bool:
+        """Determine if we should do a full fetch or quick (powerflow-only) fetch."""
+        import time
+
+        # Always do full fetch if night mode is disabled
+        if not self._night_mode_enabled:
+            return True
+
+        # Always do full fetch if not in night time
+        if not self._is_night:
+            return True
+
+        # If split polling is disabled, always do full fetch
+        if not self._always_poll_powerflow:
+            return True
+
+        # In night mode with split polling - check if it's time for a full fetch
+        if self._last_full_fetch == 0:
+            return True
+
+        time_since_full = time.time() - self._last_full_fetch
+        return time_since_full >= self._night_interval
 
     def _is_midnight_window(self) -> bool:
         """Check if current time is in the midnight skip window (23:55-00:10).
@@ -299,7 +343,16 @@ class SemsDataUpdateCoordinator(DataUpdateCoordinator[SemsData]):
                 or (time.time() - self._last_detailed_fetch) > self._night_interval
             )
 
-            if should_fetch_detailed:
+            # Determine if we should do full fetch (detailed data, warnings, weather, etc.)
+            do_full_fetch = self._should_do_full_fetch()
+
+            # Variables for additional data
+            warnings_data: list[dict[str, Any]] | None = None
+            weather_data: dict[str, Any] | None = None
+            energy_stats_data: dict[str, Any] | None = None
+
+            if do_full_fetch:
+                # Full fetch - get detailed inverter data
                 try:
                     detailed_data = await self.hass.async_add_executor_job(
                         self.semsApi.getInverterAllPoint, self.stationId
@@ -327,8 +380,51 @@ class SemsDataUpdateCoordinator(DataUpdateCoordinator[SemsData]):
                         self._last_detailed_fetch = time.time()
                 except Exception as err:
                     _LOGGER.debug("Could not fetch detailed inverter data: %s", err)
+
+                # Fetch warnings
+                try:
+                    warnings_data = await self.hass.async_add_executor_job(
+                        self.semsApi.getWarnings, self.stationId
+                    )
+                    self._cached_warnings = warnings_data
+                except Exception as err:
+                    _LOGGER.debug("Could not fetch warnings: %s", err)
+
+                # Fetch weather
+                try:
+                    weather_data = await self.hass.async_add_executor_job(
+                        self.semsApi.getWeather, self.stationId
+                    )
+                    self._cached_weather = weather_data
+                except Exception as err:
+                    _LOGGER.debug("Could not fetch weather: %s", err)
+
+                # Fetch energy statistics
+                try:
+                    energy_stats_data = await self.hass.async_add_executor_job(
+                        self.semsApi.getEnergyStatistics, self.stationId
+                    )
+                    if energy_stats_data:
+                        self._cached_energy_stats = energy_stats_data
+                        _LOGGER.debug(
+                            "SEMS: Energy stats - buy=%.1f, sell=%.1f, self_use=%.1f%%",
+                            energy_stats_data.get("buy", 0),
+                            energy_stats_data.get("sell", 0),
+                            energy_stats_data.get("self_use_ratio", 0),
+                        )
+                except Exception as err:
+                    _LOGGER.debug("Could not fetch energy statistics: %s", err)
+
+                # Update full fetch timestamp
+                self._last_full_fetch = time.time()
+                mode_str = "full"
             else:
-                _LOGGER.debug("SEMS: Night mode - skipping detailed inverter fetch")
+                # Quick mode - use cached data
+                warnings_data = self._cached_warnings
+                weather_data = self._cached_weather
+                energy_stats_data = self._cached_energy_stats
+                mode_str = "quick (powerflow only)"
+                _LOGGER.debug("SEMS: %s - using cached detailed data", mode_str)
 
             # Add currency
             kpi = result["kpi"]
@@ -371,16 +467,17 @@ class SemsDataUpdateCoordinator(DataUpdateCoordinator[SemsData]):
 
                 homekit = powerflow
 
-            import time
-
             current_time = time.time()
             data = SemsData(
                 inverters=inverters_by_sn,
                 homekit=homekit,
                 currency=currency,
                 last_updated=current_time,
+                warnings=warnings_data,
+                weather=weather_data,
+                energy_statistics=energy_stats_data,
             )
-            _LOGGER.debug("Resulting data: %s", data)
+            _LOGGER.debug("SEMS %s update complete: %d inverters", mode_str, len(inverters_by_sn))
 
             # Track successful fetch for staleness detection
             self._last_successful_fetch = current_time

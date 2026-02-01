@@ -13,6 +13,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 
 from .const import (
+    CONF_ALWAYS_POLL_POWERFLOW,
     CONF_MIDNIGHT_SKIP,
     CONF_NIGHT_INTERVAL,
     CONF_NIGHT_MODE,
@@ -165,6 +166,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     CONF_NIGHT_INTERVAL,
                     default=current_data.get(CONF_NIGHT_INTERVAL, DEFAULT_NIGHT_INTERVAL),
                 ): vol.All(vol.Coerce(int), vol.Range(min=60, max=3600)),
+                vol.Optional(
+                    CONF_ALWAYS_POLL_POWERFLOW,
+                    default=current_data.get(CONF_ALWAYS_POLL_POWERFLOW, True),
+                ): bool,
                 vol.Optional(
                     CONF_MIDNIGHT_SKIP,
                     default=current_data.get(CONF_MIDNIGHT_SKIP, True),

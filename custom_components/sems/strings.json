@@ -32,6 +32,7 @@
           "scan_interval": "Update interval (seconds)",
           "night_mode": "Enable night mode",
           "night_interval": "Night mode interval (seconds)",
+          "always_poll_powerflow": "Always poll powerflow (split polling)",
           "midnight_skip": "Skip updates around midnight",
           "stale_threshold": "Stale data threshold (seconds)"
         },
@@ -39,6 +40,7 @@
           "scan_interval": "How often to poll the API (30-600 seconds)",
           "night_mode": "Reduce API calls when inverter is offline or not producing",
           "night_interval": "How often to fetch detailed data during night mode",
+          "always_poll_powerflow": "Keep polling powerflow at normal rate during night, only slow detailed data",
           "midnight_skip": "Skip API calls between 23:55-00:10 to avoid phantom data",
           "stale_threshold": "Log warning if data hasn't updated within this time"
         }

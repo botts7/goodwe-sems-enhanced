@@ -13,10 +13,14 @@ CONF_NIGHT_MODE = "night_mode"
 CONF_NIGHT_INTERVAL = "night_interval"
 CONF_MIDNIGHT_SKIP = "midnight_skip"
 CONF_STALE_THRESHOLD = "stale_threshold"
+CONF_ALWAYS_POLL_POWERFLOW = "always_poll_powerflow"
 
 DEFAULT_SCAN_INTERVAL = 60  # timedelta(seconds=60)
 DEFAULT_NIGHT_INTERVAL = 300  # 5 minutes during night
 DEFAULT_STALE_THRESHOLD = 300  # 5 minutes - data older than this is stale
+
+# Staleness detection (in minutes for sensor display)
+STALE_THRESHOLD_MINUTES = 5
 
 # Midnight skip window (23:55-00:10) - avoid phantom data around midnight
 MIDNIGHT_SKIP_START_HOUR = 23
