@@ -490,4 +490,4 @@ class SemsDataUpdateCoordinator(DataUpdateCoordinator[SemsData]):
 
 
 # Type alias to make type inference working for pylance
-type SemsCoordinator = SemsDataUpdateCoordinator
+SemsCoordinator = SemsDataUpdateCoordinator
