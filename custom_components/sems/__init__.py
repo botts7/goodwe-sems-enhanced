@@ -18,9 +18,11 @@ from .const import (
     CONF_NIGHT_INTERVAL,
     CONF_NIGHT_MODE,
     CONF_SCAN_INTERVAL,
+    CONF_STALE_THRESHOLD,
     CONF_STATION_ID,
     DEFAULT_NIGHT_INTERVAL,
     DEFAULT_SCAN_INTERVAL,
+    DEFAULT_STALE_THRESHOLD,
     DOMAIN,
     MIDNIGHT_SKIP_END_HOUR,
     MIDNIGHT_SKIP_END_MINUTE,
@@ -40,6 +42,7 @@ class SemsData:
     inverters: dict[str, dict[str, Any]]
     homekit: dict[str, Any] | None = None
     currency: str | None = None
+    last_updated: float | None = None  # Unix timestamp of last successful fetch
 
 
 async def async_setup(hass: HomeAssistant, config: dict):
@@ -101,6 +104,11 @@ class SemsDataUpdateCoordinator(DataUpdateCoordinator[SemsData]):
         self._midnight_skip_enabled = entry.data.get(CONF_MIDNIGHT_SKIP, True)
         self._in_midnight_skip = False
         self._cached_data: SemsData | None = None
+
+        # Staleness detection
+        self._stale_threshold = entry.data.get(CONF_STALE_THRESHOLD, DEFAULT_STALE_THRESHOLD)
+        self._last_successful_fetch: float = 0
+        self._was_stale = False
 
         update_interval = timedelta(seconds=self._base_interval)
         super().__init__(
@@ -177,12 +185,48 @@ class SemsDataUpdateCoordinator(DataUpdateCoordinator[SemsData]):
             _LOGGER.info("SEMS: Exiting midnight skip window - resuming API fetches")
             self._in_midnight_skip = False
 
+    @property
+    def is_stale(self) -> bool:
+        """Check if data is stale (older than threshold)."""
+        import time
+
+        if self._last_successful_fetch == 0:
+            return False  # No data yet, not stale
+        return (time.time() - self._last_successful_fetch) > self._stale_threshold
+
+    @property
+    def data_age_seconds(self) -> float:
+        """Return age of data in seconds."""
+        import time
+
+        if self._last_successful_fetch == 0:
+            return 0
+        return time.time() - self._last_successful_fetch
+
+    def _check_staleness(self) -> None:
+        """Check and log staleness transitions."""
+        is_now_stale = self.is_stale
+        if is_now_stale and not self._was_stale:
+            _LOGGER.warning(
+                "SEMS: Data is stale - last successful update was %.1f seconds ago "
+                "(threshold: %d seconds)",
+                self.data_age_seconds,
+                self._stale_threshold,
+            )
+            self._was_stale = True
+        elif not is_now_stale and self._was_stale:
+            _LOGGER.info("SEMS: Data is no longer stale - fresh data received")
+            self._was_stale = False
+
     async def _async_update_data(self) -> SemsData:
         """Fetch data from API endpoint.
 
         This is the place to pre-process the data to lookup tables
         so entities can quickly look up their data.
         """
+        # Check staleness before update
+        self._check_staleness()
+
         # Check midnight skip window
         if self._midnight_skip_enabled:
             in_midnight_window = self._is_midnight_window()
@@ -319,10 +363,20 @@ class SemsDataUpdateCoordinator(DataUpdateCoordinator[SemsData]):
 
                 homekit = powerflow
 
+            import time
+
+            current_time = time.time()
             data = SemsData(
-                inverters=inverters_by_sn, homekit=homekit, currency=currency
+                inverters=inverters_by_sn,
+                homekit=homekit,
+                currency=currency,
+                last_updated=current_time,
             )
             _LOGGER.debug("Resulting data: %s", data)
+
+            # Track successful fetch for staleness detection
+            self._last_successful_fetch = current_time
+            self._check_staleness()
 
             # Cache data for midnight skip window
             self._cached_data = data
